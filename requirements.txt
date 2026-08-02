@@ -1,0 +1,15 @@
+# Python 3.11 runtime dependencies for this repository.
+# Install torch separately if you want a specific CUDA build:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+numpy>=1.26,<3
+matplotlib>=3.8,<4
+botorch>=0.15,<1
+gpytorch>=1.14,<2
+linear_operator>=0.6,<1
+pyro-ppl>=1.8.4,<2
+multipledispatch>=1.0,<2
+scikit-learn>=1.4,<2
+pymoo>=0.6.1,<0.7
+torch>=2.2,<3
+transformers>=4.40,<5
+ray>=2.9,<3
