@@ -460,6 +460,37 @@ def is_random_agent_path(agent_pth: str | None) -> bool:
     return agent_pth is not None and str(agent_pth).strip().lower() in {"random", "random_model"}
 
 
+def resolve_default_best_reward_checkpoint(args: argparse.Namespace) -> str:
+    policy_name = resolve_primary_policy_name(args)
+    log_subdir = {
+        "disc": "disc",
+        "disc_af": "disc_af",
+        "disc_af2": "disc_af2",
+        "disc_single_dqn": "disc_single_dqn",
+        "boformer": "boformer",
+        "db_saea": "db-saea",
+    }.get(policy_name, policy_name)
+    checkpoint_root = Path("training_logs") / str(log_subdir)
+    filename_pattern = (
+        f"{policy_name}_problem_{str(args.problem).lower()}_*_best_reward.pth"
+    )
+    candidates = [
+        path
+        for path in checkpoint_root.rglob(filename_pattern)
+        if path.is_file()
+    ] if checkpoint_root.is_dir() else []
+    if not candidates:
+        raise FileNotFoundError(
+            f"No best-reward checkpoint found for {policy_name} on {args.problem} "
+            f"under {checkpoint_root}."
+        )
+    rs1_candidates = [path for path in candidates if "_rs1_" in path.name.lower()]
+    if rs1_candidates:
+        candidates = rs1_candidates
+    selected = max(candidates, key=lambda path: (path.stat().st_mtime_ns, str(path)))
+    return str(selected.resolve())
+
+
 def resolve_inference_source(
     *,
     policy_name: str,
@@ -2809,6 +2840,13 @@ def save_npy_outputs(
 def main(agent_name: str = "disc") -> None:
     args = parse_args()
     args.agent_name = str(agent_name).lower()
+    primary_policy_name = resolve_primary_policy_name(args)
+    if (
+        is_learned_infill_policy(primary_policy_name)
+        and not bool(args.random_model)
+        and not getattr(args, "agent_pth", None)
+    ):
+        args.agent_pth = resolve_default_best_reward_checkpoint(args)
     args.seed_input = str(args.seed)
     args.seed = resolve_seed(args.seed)
     set_seed(int(args.seed))

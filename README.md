@@ -59,15 +59,14 @@ The directory contains the training log and checkpoints.
 
 ## Evaluation
 
-The following example evaluates a trained DISC checkpoint:
+The following example evaluates DISC using the latest best-reward checkpoint for the selected problem:
 
 ```powershell
 python tester.py `
   --problem ZDT1 `
   --dim 30 `
   --seed 100000 `
-  --infill disc `
-  --agent_pth "<checkpoint.pth>"
+  --infill disc
 ```
 
 Evaluation logs are written to `testing_logs/<PROBLEM>/`. Figures are written to `png/<PROBLEM>/` and `pdf/<PROBLEM>/`.
