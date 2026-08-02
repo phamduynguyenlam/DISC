@@ -17,7 +17,6 @@ def train_db_saea_ddqn_ray(
     reward_scheme=1,
     num_workers=None,
     device=None,
-    disable_dual_control=False,
 ):
     return base_trainer.train_disc_ddqn_ray(
         problem_name=problem_name,
@@ -42,7 +41,6 @@ def train_db_saea_ddqn_ray(
         agent_name="db_saea",
         cuda_cleanup_before_update=True,
         cuda_cleanup_after_update=True,
-        disable_dual_control=disable_dual_control,
     )
 
 
@@ -56,7 +54,6 @@ def main():
         reward_scheme=int(args.reward_scheme),
         num_workers=args.num_workers,
         device=args.device,
-        disable_dual_control=bool(args.disable_dual_control),
     )
 
 

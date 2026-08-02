@@ -84,7 +84,6 @@ class TrainConfig:
     cuda_cleanup_before_update: bool = False
     cuda_cleanup_after_update: bool = False
     max_regenerate_attempts: int = 3
-    disable_dual_control: bool = False
 
 
 class ReplayBuffer:
@@ -316,8 +315,6 @@ def resolve_db_saea_rollout_action(out, cfg_dict, consecutive_regenerates: int) 
     action = int(select_action_from_output(out))
     if action != 0:
         return action
-    if bool(cfg_dict.get("disable_dual_control", False)):
-        return _best_non_regenerate_db_saea_action(out["q_values"])
     max_regenerate_attempts = max(0, int(cfg_dict.get("max_regenerate_attempts", 3)))
     if int(consecutive_regenerates) >= max_regenerate_attempts:
         return _best_non_regenerate_db_saea_action(out["q_values"])
@@ -333,7 +330,6 @@ def parse_args(configure_parser=None):
     parser.add_argument("--reward_scheme", type=int, default=1, choices=[1, 2])
     parser.add_argument("--num_workers", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--disable_dual_control", action="store_true")
     if configure_parser is not None:
         configure_parser(parser)
     args = parser.parse_args()
@@ -1432,7 +1428,6 @@ def train_disc_ddqn_ray(
     agent_name="disc",
     cuda_cleanup_before_update=None,
     cuda_cleanup_after_update=None,
-    disable_dual_control=False,
 ):
     cfg = TrainConfig()
     cfg.seed = int(seed)
@@ -1448,7 +1443,6 @@ def train_disc_ddqn_ray(
     cfg.hybrid_nsga3_steps = None if hybrid_nsga3_steps is None else int(hybrid_nsga3_steps)
     cfg.hybrid_moead_ego_steps = None if hybrid_moead_ego_steps is None else int(hybrid_moead_ego_steps)
     cfg.max_regenerate_attempts = 3
-    cfg.disable_dual_control = bool(disable_dual_control)
     default_cleanup = True
     cfg.cuda_cleanup_before_update = (
         bool(default_cleanup)
@@ -1585,7 +1579,6 @@ def train_disc_ddqn_ray(
     if str(cfg.agent_name).lower() == "db_saea":
         config_parts.extend([
             f"max_regenerate_attempts={cfg.max_regenerate_attempts}",
-            f"disable_dual_control={int(bool(cfg.disable_dual_control))}",
         ])
     config_parts.extend([
         f"hybrid_nsga3_steps={cfg.hybrid_nsga3_steps if cfg.hybrid_nsga3_steps is not None else '-'}",
@@ -1863,6 +1856,5 @@ if __name__ == "__main__":
         agent_name=str(args.agent_name),
         cuda_cleanup_before_update=args.cuda_cleanup_before_update,
         cuda_cleanup_after_update=args.cuda_cleanup_after_update,
-        disable_dual_control=bool(args.disable_dual_control),
         use_ray=bool(args.ray),
     )
