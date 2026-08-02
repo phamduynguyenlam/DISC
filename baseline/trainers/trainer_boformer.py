@@ -412,20 +412,9 @@ def rollout_boformer_episode(
     epsilon,
     r_demo=0.01,
 ):
-    started_at = time.perf_counter()
     device = str(cfg_dict.get("rollout_device", "cpu"))
-    if base._debug_enabled(cfg_dict):
-        base.dbg(
-            f"worker entered | problem={problem_name} | dim={int(dim)} | "
-            f"seed={int(seed)} | device={device} | agent=boformer"
-        )
-        base.dbg("worker init: before seed_everything")
     base.seed_everything(int(seed), include_cuda=str(device).startswith("cuda"))
-    if base._debug_enabled(cfg_dict):
-        base.dbg("worker init: after seed_everything")
     max_objectives = int(cfg_dict["boformer_max_objectives"])
-    if base._debug_enabled(cfg_dict):
-        base.dbg(f"worker init: resolved max_objectives={max_objectives}")
     init_kwargs = {
         "n_objectives": max_objectives,
         "hidden_dim": int(cfg_dict.get("hidden_dim", 128)),
@@ -436,53 +425,17 @@ def rollout_boformer_episode(
         "epsilon": float(epsilon),
         "temperature": float(cfg_dict.get("boformer_temperature", BOFORMER_TEMPERATURE)),
     }
-    if base._debug_enabled(cfg_dict):
-        base.dbg(
-            "worker init: built init_kwargs | "
-            f"hidden_dim={init_kwargs['hidden_dim']} | "
-            f"layers={init_kwargs['n_layers']} | heads={init_kwargs['n_heads']} | "
-            f"window={init_kwargs['window_size']}"
-        )
-        base.dbg("worker init: before policy instantiate")
     policy = BOFormer(**init_kwargs)
-    if base._debug_enabled(cfg_dict):
-        base.dbg("worker init: after policy instantiate")
-        base.dbg("worker init: before target instantiate")
     target = BOFormer(**init_kwargs)
-    if base._debug_enabled(cfg_dict):
-        base.dbg("worker init: after target instantiate")
-        base.dbg(f"worker init: before policy.to({device})")
     policy = policy.to(device)
-    if base._debug_enabled(cfg_dict):
-        base.dbg("worker init: after policy.to(device)")
-        base.dbg(f"worker init: before target.to({device})")
     target = target.to(device)
-    if base._debug_enabled(cfg_dict):
-        base.dbg("worker init: after target.to(device)")
-        base.dbg("worker init: before checkpoint upgrade")
     policy_state_dict_cpu = upgrade_legacy_observation_action_weight(policy_state_dict_cpu)
     target_state_dict_cpu = upgrade_legacy_observation_action_weight(target_state_dict_cpu)
-    if base._debug_enabled(cfg_dict):
-        base.dbg("worker init: after checkpoint upgrade")
-        base.dbg("worker init: before policy.load_state_dict")
     policy.load_state_dict(policy_state_dict_cpu, strict=True)
-    if base._debug_enabled(cfg_dict):
-        base.dbg("worker init: after policy.load_state_dict")
-        base.dbg("worker init: before target.load_state_dict")
     target.load_state_dict(target_state_dict_cpu, strict=True)
-    if base._debug_enabled(cfg_dict):
-        base.dbg("worker init: after target.load_state_dict")
-        base.dbg("worker init: before eval()")
     policy.eval()
     target.eval()
-    if base._debug_enabled(cfg_dict):
-        base.dbg("worker init: after eval()")
-
-    if base._debug_enabled(cfg_dict):
-        base.dbg("before env init")
     env = base.DiscSAEAEnv(problem_name, int(dim), int(seed), cfg_dict)
-    if base._debug_enabled(cfg_dict):
-        base.dbg("after env init")
     state = env.reset()
     demo_name = str(cfg_dict.get("demo_policy", "ehvi")).strip().lower().replace("-", "_")
     demo_criterion = build_demo_infill_criterion(demo_name, env.ref_point)
@@ -503,8 +456,6 @@ def rollout_boformer_episode(
     history_objective_mask: list[np.ndarray] = []
     done = False
     while not done:
-        if base._debug_enabled(cfg_dict):
-            base.dbg(f"before env step | rollout_step={len(trajectory)}")
         obs = _build_boformer_observation(state, max_objectives=max_objectives)
         common_kwargs = _forward_obs_kwargs(obs, device)
         hist_kwargs = _history_kwargs(
@@ -537,12 +488,8 @@ def rollout_boformer_episode(
                     epsilon=float(epsilon),
                 )
                 action = int(policy_out["action"].reshape(-1)[0].item())
-        if base._debug_enabled(cfg_dict):
-            base.dbg(f"before agent/select action | action={int(action)}")
         selected_q = float(target_out["q_values"][0, int(action)].detach().cpu())
         next_state, reward, done = env.step(action, state)
-        if base._debug_enabled(cfg_dict):
-            base.dbg(f"after agent/select action | action={int(action)}")
         next_obs = _build_boformer_observation(next_state, max_objectives=max_objectives)
         trajectory.append(
             {
@@ -568,10 +515,7 @@ def rollout_boformer_episode(
         history_q_values.append(float(selected_q))
         history_objective_mask.append(np.asarray(obs["objective_mask"], dtype=np.float32))
         state = next_state
-        if base._debug_enabled(cfg_dict):
-            base.dbg(f"after env step | rollout_step={len(trajectory)} | done={int(done)}")
 
-    finished_at = time.perf_counter()
     return {
         "trajectory": trajectory,
         "episode_reward": float(total_reward),
@@ -580,10 +524,6 @@ def rollout_boformer_episode(
         "init_hv": float(env.init_hv),
         "final_hv": float(env.current_hv()),
         "used_demo_episode": int(use_demo),
-        "worker_pid": os.getpid(),
-        "task_started_at": started_at,
-        "task_finished_at": finished_at,
-        "task_duration_sec": finished_at - started_at,
     }
 
 
@@ -803,29 +743,10 @@ def train_boformer(args):
 
     cfg_dict = cfg.__dict__.copy()
     log(
-        "Training config | "
-        f"seed={cfg.seed} | "
-        f"heldout={cfg.heldout_problem} | training_set=1 | "
-        f"envs={len(env_specs)} | workers={workers} | reward_scheme={cfg.reward_scheme} | "
-        f"reward_lambda={cfg.reward_lambda:.4f} | reward_norm={int(cfg.reward_norm)} | "
-        f"agent=boformer | learning=non_markovian_q | "
-        f"demo_policy={cfg.demo_policy} | r_demo={cfg.r_demo:.4f} | solver={cfg.solver} | "
-        f"surrogate={base.effective_surrogate_label(cfg)} | epochs={cfg.train_iters} | "
-        f"saea_steps={cfg.saea_steps} | eval_batch_size={cfg.eval_batch_size} | "
-        f"updates_per_epoch={cfg.updates_per_epoch} | hidden_dim={cfg.hidden_dim} | "
-        f"max_objectives={cfg.boformer_max_objectives} | "
-        f"gpt_layers={cfg.boformer_n_layers} | gpt_heads={cfg.boformer_n_heads} | "
-        f"window_size={cfg.boformer_window_size} | dropout={cfg.boformer_dropout:.3f} | "
-        f"softmax_temperature={cfg.boformer_temperature:.1f} | "
-        f"debug={int(cfg.debug)} | "
-        f"cuda_cleanup_before_update={int(cfg.cuda_cleanup_before_update)} | "
-        f"cuda_cleanup_after_update={int(cfg.cuda_cleanup_after_update)} | "
-        f"trajectory_batch_size={TRAJECTORY_BATCH_SIZE} | trajectory_replay_size={TRAJECTORY_REPLAY_SIZE} | "
-        f"priority_alpha={PRIORITY_ALPHA:.2f} | priority_beta={PRIORITY_BETA:.2f} | "
-        f"target_sync_updates={TARGET_SYNC_UPDATES} | train_device={cfg.device} | "
-        f"rollout_device={cfg.rollout_device} | lr={cfg.lr:.1e} | "
-        f"weight_decay={cfg.boformer_weight_decay:.1e} | gamma={cfg.gamma:.4f} | "
-        f"log_path={log_path}"
+        f"training | heldout = {cfg.heldout_problem} | set = 1 | "
+        f"agent = boformer | solver = {cfg.solver} | "
+        f"surrogate = {base.effective_surrogate_label(cfg)} | "
+        f"epochs = {cfg.train_iters} | workers = {workers}"
     )
     executor = None
     ray_module = None
@@ -845,21 +766,13 @@ def train_boformer(args):
             epoch = local_epoch + 1
             epsilon = base.epsilon_by_iter(local_epoch, cfg)
             log(
-                f"[Epoch {epoch:04d}] start | solver={cfg.solver} | "
-                f"demo_policy={cfg.demo_policy} | r_demo={cfg.r_demo:.3f} | eps={epsilon:.3f}"
+                f"epoch {epoch}/{cfg.train_iters} | start | "
+                f"solver = {cfg.solver} | epsilon = {epsilon:.3f}"
             )
-            if base._debug_enabled(cfg):
-                base.dbg(f"epoch {epoch} after start log")
-                base.dbg(f"num_workers={workers}")
-                base.dbg("before rollout collection")
             policy_cpu = base.clone_state_dict_cpu(agent)
             target_cpu = base.clone_state_dict_cpu(target)
             if ray_worker is None:
-                if base._debug_enabled(cfg):
-                    base.dbg(f"before ProcessPoolExecutor create | workers={workers}")
                 executor = ProcessPoolExecutor(max_workers=workers)
-                if base._debug_enabled(cfg):
-                    base.dbg("after ProcessPoolExecutor create")
             futures = []
             for env_idx, spec in enumerate(env_specs):
                 seed = int(cfg.seed) + 100000 * epoch + 1000 * env_idx
@@ -874,58 +787,19 @@ def train_boformer(args):
                     float(cfg.r_demo),
                 )
                 if ray_worker is not None:
-                    if base._debug_enabled(cfg):
-                        base.dbg(f"before submit worker {len(futures)}")
                     futures.append(ray_worker.remote(*rollout_args))
-                    if base._debug_enabled(cfg):
-                        base.dbg(f"after submit worker {len(futures) - 1}")
                 else:
-                    if base._debug_enabled(cfg):
-                        base.dbg(f"before submit worker {len(futures)}")
                     futures.append(executor.submit(rollout_boformer_episode, *rollout_args))
-                    if base._debug_enabled(cfg):
-                        base.dbg(f"after submit worker {len(futures) - 1}")
             if ray_worker is not None:
-                if base._debug_enabled(cfg):
-                    base.dbg("before rollout collection ray.get")
                 results = ray_module.get(futures)
-                if base._debug_enabled(cfg):
-                    base.dbg("after rollout collection ray.get")
             else:
                 results = []
-                for idx, future in enumerate(futures):
-                    if base._debug_enabled(cfg):
-                        base.dbg(f"before future.result worker {idx}")
-                    try:
-                        results.append(future.result())
-                    except Exception as exc:
-                        if base._debug_enabled(cfg):
-                            base.dbg(f"future {idx} raised: {repr(exc)}")
-                        raise
-                    if base._debug_enabled(cfg):
-                        base.dbg(f"after future.result worker {idx}")
+                for future in futures:
+                    results.append(future.result())
             if executor is not None:
                 executor.shutdown(wait=True, cancel_futures=True)
                 executor = None
-            if base._debug_enabled(cfg):
-                base.dbg("after rollout collection")
-            parallel_stats = base.summarize_parallel_rollout(results)
             demo_episodes = sum(int(item["used_demo_episode"]) for item in results)
-            if parallel_stats is not None:
-                log(
-                    f"[Epoch {epoch:04d}] interact parallel | "
-                    f"tasks={parallel_stats['tasks']} | "
-                    f"unique_pids={parallel_stats['unique_pids']} | "
-                    f"pid_list={parallel_stats['pid_list']} | "
-                    f"overlap_wall_sec={parallel_stats['overlap_wall_sec']:.3f} | "
-                    f"sum_task_sec={parallel_stats['sum_task_sec']:.3f} | "
-                    f"mean_task_sec={parallel_stats['mean_task_sec']:.3f} | "
-                    f"min_task_sec={parallel_stats['min_task_sec']:.3f} | "
-                    f"max_task_sec={parallel_stats['max_task_sec']:.3f} | "
-                    f"parallelism_est={parallel_stats['parallelism_est']:.2f} | "
-                    f"demo_episodes={demo_episodes} | "
-                    f"policy_episodes={len(results) - demo_episodes}"
-                )
             for result in results:
                 replay.push(result["trajectory"])
 
@@ -950,65 +824,9 @@ def train_boformer(args):
                 if demo_enabled and policy_rewards
                 else (0.0 if demo_enabled else float(np.mean(all_rewards)))
             )
-            for key, bucket in sorted(env_stats.items()):
-                log(
-                    f"{key} epoch {epoch} done, mean reward/FE = {np.mean(bucket['reward']):.4f}, "
-                    f"policy mean reward/FE = "
-                    f"{np.mean(bucket['policy_reward']) if bucket['policy_reward'] else 0.0:.4f}, "
-                    f"init HV = {np.mean(bucket['init']):.6f}, final HV = {np.mean(bucket['final']):.6f}"
-                )
-            log(
-                f"[Epoch {epoch:04d}] rollout done | trajectories={len(results)} | "
-                f"demo_episodes={demo_episodes} | policy_episodes={len(results) - demo_episodes} | "
-                f"replay={len(replay)} | mean reward/FE={mean_reward:.4f}"
-            )
-            if cfg.debug:
-                new_stats = [_trajectory_storage_stats(item["trajectory"]) for item in results]
-                replay_stats = [_trajectory_storage_stats(item) for item in replay.trajectories]
-                log(
-                    f"[Epoch {epoch:04d}] rollout debug | "
-                    f"new_payload_mb={sum(item['payload_bytes'] for item in new_stats) / (1024.0 * 1024.0):.2f} | "
-                    f"replay_payload_mb={sum(item['payload_bytes'] for item in replay_stats) / (1024.0 * 1024.0):.2f} | "
-                    f"trajectory_mb_mean={np.mean([item['payload_bytes'] for item in new_stats]) / (1024.0 * 1024.0):.3f} | "
-                    f"transition_mb_mean={np.mean([item['transition_bytes_mean'] for item in new_stats]) / (1024.0 * 1024.0):.3f} | "
-                    f"transition_mb_max={max((item['transition_bytes_max'] for item in new_stats), default=0) / (1024.0 * 1024.0):.3f} | "
-                    f"candidate_rows_mean={np.mean([item['candidate_rows_mean'] for item in new_stats]):.2f} | "
-                    f"candidate_rows_max={max((item['candidate_rows_max'] for item in new_stats), default=0)}"
-                )
-            log(
-                f"epoch {epoch} pre-update | mean reward/FE = {mean_reward:.4f} | "
-                f"set = 1 | heldout = {cfg.heldout_problem} | "
-                f"solver = {cfg.solver} | surrogate = {base.effective_surrogate_label(cfg)} | "
-                f"saea_steps = {cfg.saea_steps} | "
-                f"eval_batch_size = {cfg.eval_batch_size} | workers = {workers} | "
-                f"replay = {len(replay)} | reward_scheme = {cfg.reward_scheme} | "
-                f"reward_norm = {int(cfg.reward_norm)}"
-            )
-
             if cfg.cuda_cleanup_before_update:
-                if cfg.debug:
-                    log(f"[Epoch {epoch:04d}] nvidia-smi before cleanup/update | {base._nvidia_smi_snapshot()}")
-                cleanup_stats = base._cleanup_cuda_cache(cfg.device, rounds=3, sleep_sec=1.0)
-                if cfg.debug:
-                    before = cleanup_stats["before"]
-                    after = cleanup_stats["after"]
-                    log(
-                        f"[Epoch {epoch:04d}] cuda cleanup before update | "
-                        f"free_mb={before['free_mb']:.2f}->{after['free_mb']:.2f} | "
-                        f"alloc_mb={before['alloc_mb']:.2f}->{after['alloc_mb']:.2f} | "
-                        f"reserved_mb={before['reserved_mb']:.2f}->{after['reserved_mb']:.2f}"
-                    )
-                    log(f"[Epoch {epoch:04d}] nvidia-smi after cleanup before update | {base._nvidia_smi_snapshot()}")
+                base._cleanup_cuda_cache(cfg.device, rounds=3, sleep_sec=1.0)
             pre_update_state_dict = base.clone_state_dict_cpu(agent)
-            pre_update_cpu_mem = base._process_memory_stats_mb() if cfg.debug else None
-            pre_update_cuda_mem = base._cuda_memory_stats_mb(cfg.device) if cfg.debug else None
-            if cfg.debug and torch.cuda.is_available():
-                try:
-                    cuda_device = torch.device(str(cfg.device))
-                    if cuda_device.type == "cuda":
-                        torch.cuda.reset_peak_memory_stats(cuda_device)
-                except Exception:
-                    pass
             agent.train()
             target.eval()
             update_started = time.perf_counter()
@@ -1017,8 +835,6 @@ def train_boformer(args):
                 for _ in range(int(cfg.updates_per_epoch)):
                     update_metrics.append(update_from_trajectory_batch(agent, target, optimizer, replay, cfg))
             update_elapsed = time.perf_counter() - update_started
-            post_update_cpu_mem = base._process_memory_stats_mb() if cfg.debug else None
-            post_update_cuda_mem = base._cuda_memory_stats_mb(cfg.device) if cfg.debug else None
 
             if update_metrics:
                 total_update_steps += len(update_metrics)
@@ -1027,70 +843,24 @@ def train_boformer(args):
                     for key in update_metrics[0]
                 }
                 log(
-                    f"epoch {epoch} update done | replay={len(replay)} | updates={len(update_metrics)} | "
-                    f"update_time_sec={update_elapsed:.3f} | td_loss={averaged['td_loss']:.6f} | "
-                    f"grad_norm={averaged['grad_norm']:.6f} | q_mean={averaged['q_mean']:.4f} | "
-                    f"target_mean={averaged['target_mean']:.4f} | "
-                    f"td_error_mean={averaged['td_error_mean']:.4f} | "
-                    f"trajectory_steps={averaged['trajectory_steps']:.2f}"
+                    f"epoch {epoch}/{cfg.train_iters} | reward/FE = {mean_reward:.4f} | "
+                    f"replay = {len(replay)} | lr = {optimizer.param_groups[0]['lr']:.2e} | "
+                    f"loss = {averaged['td_loss']:.6f} | update_sec = {update_elapsed:.2f}"
                 )
-                if cfg.debug:
-                    log(
-                        f"[Epoch {epoch:04d}] minibatch debug | "
-                        f"updates={len(update_metrics)} | "
-                        f"sample_cpu_total_sec={sum(item['sample_cpu_sec'] for item in update_metrics):.3f} | "
-                        f"trajectory_batch_cpu_mb_mean={averaged['trajectory_batch_cpu_mb']:.2f} | "
-                        f"state_input_mb_max={max(item['state_input_mb_max'] for item in update_metrics):.3f} | "
-                        f"trajectory_steps_mean={averaged['trajectory_steps']:.2f} | "
-                        f"candidate_rows_mean={averaged['candidate_rows_mean']:.2f} | "
-                        f"candidate_rows_max={int(max(item['candidate_rows_max'] for item in update_metrics))}"
-                    )
             else:
-                log(f"epoch {epoch} update skipped | replay={len(replay)}")
+                log(
+                    f"epoch {epoch}/{cfg.train_iters} | reward/FE = {mean_reward:.4f} | "
+                    f"replay = {len(replay)} | update = skipped"
+                )
 
             if total_update_steps - last_target_sync_update >= TARGET_SYNC_UPDATES:
                 target.load_state_dict(agent.state_dict(), strict=True)
                 last_target_sync_update = total_update_steps
-                log(
-                    f"epoch {epoch} target sync | sync_every_updates={TARGET_SYNC_UPDATES} | "
-                    f"total_update_steps={total_update_steps} | replay={len(replay)}"
-                )
-
-            if cfg.debug and pre_update_cpu_mem is not None and post_update_cpu_mem is not None:
-                log(
-                    f"[Epoch {epoch:04d}] host_mem debug | "
-                    f"rss_mb={post_update_cpu_mem['rss_mb']:.2f} | "
-                    f"rss_delta_mb={post_update_cpu_mem['rss_mb'] - pre_update_cpu_mem['rss_mb']:.2f} | "
-                    f"vms_mb={post_update_cpu_mem['vms_mb']:.2f} | "
-                    f"uss_mb={post_update_cpu_mem['uss_mb']:.2f} | "
-                    f"avail_mb={post_update_cpu_mem['avail_mb']:.2f}"
-                )
-            if cfg.debug and pre_update_cuda_mem is not None and post_update_cuda_mem is not None:
-                log(
-                    f"[Epoch {epoch:04d}] cuda_mem debug | "
-                    f"alloc_mb={post_update_cuda_mem['alloc_mb']:.2f} | "
-                    f"reserved_mb={post_update_cuda_mem['reserved_mb']:.2f} | "
-                    f"peak_alloc_mb={post_update_cuda_mem['peak_alloc_mb']:.2f} | "
-                    f"peak_reserved_mb={post_update_cuda_mem['peak_reserved_mb']:.2f} | "
-                    f"alloc_delta_mb={post_update_cuda_mem['alloc_mb'] - pre_update_cuda_mem['alloc_mb']:.2f} | "
-                    f"reserved_delta_mb={post_update_cuda_mem['reserved_mb'] - pre_update_cuda_mem['reserved_mb']:.2f} | "
-                    f"free_mb={post_update_cuda_mem['free_mb']:.2f} | "
-                    f"total_mb={post_update_cuda_mem['total_mb']:.2f}"
-                )
-                log(f"[Epoch {epoch:04d}] nvidia-smi after update | {base._nvidia_smi_snapshot()}")
             if cfg.cuda_cleanup_after_update:
-                cleanup_stats = base._cleanup_cuda_cache(cfg.device, rounds=3, sleep_sec=1.0)
-                if cfg.debug:
-                    before = cleanup_stats["before"]
-                    after = cleanup_stats["after"]
-                    log(
-                        f"[Epoch {epoch:04d}] cuda cleanup after update | "
-                        f"free_mb={before['free_mb']:.2f}->{after['free_mb']:.2f} | "
-                        f"alloc_mb={before['alloc_mb']:.2f}->{after['alloc_mb']:.2f} | "
-                        f"reserved_mb={before['reserved_mb']:.2f}->{after['reserved_mb']:.2f}"
-                    )
-                    log(f"[Epoch {epoch:04d}] nvidia-smi after cleanup update | {base._nvidia_smi_snapshot()}")
+                base._cleanup_cuda_cache(cfg.device, rounds=3, sleep_sec=1.0)
 
+            if mean_reward > best_reward:
+                log(f"new best mean reward/FE at epoch {epoch}: {mean_reward:.4f}")
             best_reward = base.save_training_checkpoint(
                 agent,
                 cfg,
