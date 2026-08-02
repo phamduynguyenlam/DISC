@@ -179,16 +179,12 @@ def run_once(args: argparse.Namespace) -> dict:
     problem = make_problem(args.problem, dim=int(args.dim))
     log_path = Path(args.log_path) if args.log_path else default_log_path(args)
     logger, log_fp = make_logger(log_path)
-    prefix = "[USEMO] "
 
     try:
-        logger(f"test_log_path = {log_path.resolve()}")
-        logger(f"dim = {int(args.dim)}")
-        logger("framework_label = USEMO-EI")
-        logger("infill_label = USEMO-EI")
-        logger("comparison_family = solver_vs_baseline")
-        logger("solver_family = usemo_ei")
-        logger("run_variant = baseline")
+        logger(
+            f"test | baseline = usemo_ei | problem = {args.problem} | "
+            f"dim = {int(args.dim)} | seed = {int(args.seed)}"
+        )
         archive_x = latin_hypercube_sample(
             n_samples=int(args.init_fe),
             dim=int(problem.dim),
@@ -201,15 +197,9 @@ def run_once(args: argparse.Namespace) -> dict:
         ref_point = get_reference_point(args.problem, n_obj=n_obj)
         nsga_problem = make_problem_adapter(problem, n_obj)
 
-        logger(f"reference_point = {ref_point.tolist()} (from problem/problem.py)")
-        logger("candidate_solver = usemo_ei")
-        logger("surrogate_model = gp")
-        logger(f"saea_steps = {int(args.saea_steps)}")
-
         hv_history: list[float] = [hypervolume(archive_y, ref_point)]
         fe_history: list[int] = [int(args.init_fe)]
         records: list[USEMOStepRecord] = []
-        logger(f"{prefix}iter 0 | front = {int(pareto_front(archive_y).shape[0])} | HV = {hv_history[-1]:.12f}")
 
         n_evo_steps = int(args.max_fe) - int(args.init_fe)
         for step in range(n_evo_steps):
@@ -246,7 +236,6 @@ def run_once(args: argparse.Namespace) -> dict:
                 selected_sigma=pareto_sigma[selected_idx].reshape(-1).astype(np.float32).tolist(),
             )
             records.append(record)
-            logger(f"{prefix}iter {record.step} | front = {record.front_size} | HV = {record.hv:.12f}")
 
         summary = {
             "method": "usemo_ei",
@@ -271,13 +260,15 @@ def run_once(args: argparse.Namespace) -> dict:
         }
         wall_clock_sec = time.perf_counter() - run_started_at
         summary["wall_clock_sec"] = float(wall_clock_sec)
-        logger(f"wall_clock_sec = {wall_clock_sec:.6f}")
+        logger(
+            f"result | FE = {fe_history[-1]} | front = {int(pareto_front(archive_y).shape[0])} | "
+            f"HV = {hv_history[-1]:.12f} | wall_sec = {wall_clock_sec:.2f}"
+        )
         plot_results(args=args, archive_y=archive_y, fe_history=fe_history, hv_history=hv_history)
         if args.output_json:
             output_path = Path(args.output_json)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-            logger(f"output_json = {output_path.resolve()}")
         return summary
     finally:
         log_fp.close()

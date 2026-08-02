@@ -399,12 +399,6 @@ class MOEADEGOSolver:
             "n_candidates": 0,
         }
         logs.append(init_log)
-        init_hv_part = f" | HV = {init_log['hv']:.12f}" if cfg.ref_point is not None else " | HV = nan"
-        init_message = f"[moead_ego] iter 0 | front = {init_log['n_nd']}{init_hv_part}"
-        if self.logger is not None:
-            self.logger(init_message)
-        else:
-            print(init_message)
 
         fe = len(x)
         remaining = cfg.infill_budget
@@ -440,12 +434,6 @@ class MOEADEGOSolver:
                     "n_candidates": info["n_candidates"],
                 }
                 logs.append(log)
-                hv_part = f" | HV = {log['hv']:.12f}" if cfg.ref_point is not None else " | HV = nan"
-                message = f"[moead_ego] iter {iteration + 1} | front = {log['n_nd']}{hv_part}"
-                if self.logger is not None:
-                    self.logger(message)
-                else:
-                    print(message)
                 iteration += 1
 
         nd_mask = non_dominated_mask(y)
@@ -620,13 +608,10 @@ def run_once(run_args: argparse.Namespace) -> dict:
     log_path = Path(run_args.log_path) if run_args.log_path else default_log_path(run_args)
     logger, log_fp = make_logger(log_path)
     try:
-        logger(f"test_log_path = {log_path.resolve()}")
-        logger(f"dim = {int(run_args.dim)}")
-        logger("framework_label = MOEA/D-EGO")
-        logger("infill_label = MOEA/D-EGO")
-        logger("comparison_family = solver_vs_baseline")
-        logger("solver_family = moead_ego")
-        logger("run_variant = baseline")
+        logger(
+            f"test | baseline = moead_ego | problem = {run_args.problem} | "
+            f"dim = {int(run_args.dim)} | seed = {int(run_args.seed)}"
+        )
         objective, lower, upper, n_obj = make_pymoo_objective(run_args.problem, run_args.dim)
         try:
             ref_point = get_reference_point(str(run_args.problem), n_obj=int(n_obj))
@@ -642,7 +627,7 @@ def run_once(run_args: argparse.Namespace) -> dict:
             seed=run_args.seed,
             ref_point=ref_point,
         )
-        solver = MOEADEGOSolver(objective, lower, upper, n_obj, cfg, logger=logger)
+        solver = MOEADEGOSolver(objective, lower, upper, n_obj, cfg, logger=None)
         result = solver.run()
 
         fe_history = [int(log["fe"]) for log in result["logs"]]
@@ -674,18 +659,17 @@ def run_once(run_args: argparse.Namespace) -> dict:
         }
         wall_clock_sec = time.perf_counter() - run_started_at
         summary["wall_clock_sec"] = float(wall_clock_sec)
-        logger(f"wall_clock_sec = {wall_clock_sec:.6f}")
-
         plot_results(args=run_args, archive_y=result["Y"], fe_history=fe_history, hv_history=hv_history)
 
-        logger(f"Final FE: {result['X'].shape[0]}")
-        logger(f"Final #ND: {result['pareto_Y'].shape[0]}")
+        logger(
+            f"result | FE = {result['X'].shape[0]} | front = {result['pareto_Y'].shape[0]} | "
+            f"HV = {summary['final_hv']:.12f} | wall_sec = {wall_clock_sec:.2f}"
+        )
 
         if run_args.output_json:
             output_path = Path(run_args.output_json)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-            logger(f"output_json = {output_path.resolve()}")
 
         if run_args.save:
             np.savez_compressed(
@@ -697,7 +681,6 @@ def run_once(run_args: argparse.Namespace) -> dict:
                 pareto_Y=result["pareto_Y"],
                 logs=np.asarray(result["logs"], dtype=object),
             )
-            logger(f"saved_npz = {Path(run_args.save).resolve()}")
         return summary
     finally:
         log_fp.close()

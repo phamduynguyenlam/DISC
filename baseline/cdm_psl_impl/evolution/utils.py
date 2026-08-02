@@ -9,8 +9,6 @@ def init_obj_limits(f_min, f_max):
     if f_min is None:
         f_min = 0
     else:
-        print('#######')
-        print(f_min)
         f_min = np.array(f_min)
 
     if f_max is None:
@@ -36,7 +34,6 @@ def update_scalar_rep(rep_individuals, ind):
 
     if rep_ind is None or ind.scalar_dist < rep_ind.scalar_dist:
         rep_individuals[cid] = ind
-        print(f"Scalar rep in cluster {cid} is updated")
         return True
     return False
 

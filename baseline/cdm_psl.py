@@ -332,8 +332,6 @@ def run_cdm_psl_baseline(args: argparse.Namespace, logger=print) -> dict:
         window=int(getattr(args, "switch_window", 3)),
         threshold=float(getattr(args, "switch_threshold", 0.05)),
     )
-    logger(f"[cdm_psl] iter 0 | front = {int(pareto_front(archive_y).shape[0])} | HV = {hv_history[-1]:.12f}")
-
     n_evo_steps = int(args.max_fe) - int(args.init_fe)
     step = 0
     while step < n_evo_steps:
@@ -382,19 +380,11 @@ def run_cdm_psl_baseline(args: argparse.Namespace, logger=print) -> dict:
                 selected_std=offspring_std[selected_idx].reshape(-1).astype(float).tolist(),
             )
             records.append(record)
-            logger(
-                f"[cdm_psl] iter {record.step} | front = {front_size} | "
-                f"HV = {hv:.12f} | operator = {'cdm' if use_cdm else 'ga'} | "
-                f"batch_size = {int(current_batch)}"
-            )
             batch_completed = True
             if step >= n_evo_steps:
                 break
-        if switch is not None and batch_completed and switch.update(hv_history):
-            logger(
-                f"[cdm_psl] iter {records[-1].step} | switch_operator = "
-                f"{'cdm' if switch.use_cdm else 'ga'}"
-            )
+        if switch is not None and batch_completed:
+            switch.update(hv_history)
 
     return {
         "method": "cdm_psl_wo_dm" if diffusion_disabled else "cdm_psl",
@@ -473,35 +463,22 @@ def run_once(args: argparse.Namespace) -> dict:
     log_path = Path(args.log_path) if args.log_path else default_log_path(args)
     logger, log_fp = make_logger(log_path)
     try:
-        logger(f"test_log_path = {log_path.resolve()}")
-        logger(f"dim = {int(args.dim)}")
         framework_label = "CDM-PSL w/o DM" if bool(getattr(args, "disable_diffusion_model", False)) else "CDM-PSL"
-        logger(f"framework_label = {framework_label}")
-        logger(f"infill_label = {framework_label}")
         comparison_family = "solver_vs_baseline" if framework_label == "CDM-PSL" else None
         solver_family = "cdm_psl" if framework_label == "CDM-PSL" else None
         run_variant = "baseline" if framework_label == "CDM-PSL" else None
-        logger(f"comparison_family = {comparison_family if comparison_family is not None else '-'}")
-        logger(f"solver_family = {solver_family if solver_family is not None else '-'}")
-        logger(f"run_variant = {run_variant if run_variant is not None else '-'}")
-        logger("candidate_solver = cdm_psl")
-        logger("surrogate_model = gp")
         logger(
-            f"operator_switch_window = {int(args.switch_window)} | "
-            f"operator_switch_threshold = {float(args.switch_threshold):.4f} | "
-            f"start_operator = {'ga' if bool(args.start_with_ga or args.disable_diffusion_model) else 'cdm'}"
-        )
-        logger(
-            f"disable_diffusion_model = {int(bool(getattr(args, 'disable_diffusion_model', False)))} | "
-            f"diffusion_batch_size = {int(args.diffusion_batch_size)} | "
-            f"diffusion_num_epoch = {int(args.diffusion_num_epoch)} | "
-            f"diffusion_guided_samples = {int(args.diffusion_guided_samples)} | "
-            f"diffusion_random_samples = {int(args.diffusion_random_samples)}"
+            f"test | baseline = {str(framework_label).lower().replace(' ', '_')} | "
+            f"problem = {args.problem} | dim = {int(args.dim)} | seed = {int(args.seed)}"
         )
         summary = run_cdm_psl_baseline(args, logger=logger)
         wall_clock_sec = time.perf_counter() - run_started_at
         summary["wall_clock_sec"] = float(wall_clock_sec)
-        logger(f"wall_clock_sec = {wall_clock_sec:.6f}")
+        logger(
+            f"result | FE = {summary['fe_history'][-1]} | "
+            f"front = {int(pareto_front(np.asarray(summary['final_archive_y'])).shape[0])} | "
+            f"HV = {summary['final_hv']:.12f} | wall_sec = {wall_clock_sec:.2f}"
+        )
         plot_results(args=args, summary=summary)
         summary_for_json = dict(summary)
         summary_for_json["comparison_family"] = comparison_family
@@ -512,7 +489,6 @@ def run_once(args: argparse.Namespace) -> dict:
             output_path = Path(args.output_json)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(json.dumps(summary_for_json, indent=2), encoding="utf-8")
-            logger(f"output_json = {output_path.resolve()}")
         return summary_for_json
     finally:
         log_fp.close()

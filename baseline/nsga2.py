@@ -174,7 +174,6 @@ def run_once(args: argparse.Namespace) -> dict:
     ref_point = np.asarray(get_reference_point(args.problem, n_obj=n_obj), dtype=np.float32)
     log_path = Path(args.log_path) if args.log_path else default_log_path(args)
     logger, log_fp = make_logger(log_path)
-    prefix = "[NSGA2] "
 
     class WrappedProblem(Problem):
         def __init__(self):
@@ -232,26 +231,12 @@ def run_once(args: argparse.Namespace) -> dict:
             self.hv_history.append(float(hv))
             self.population_x = pop_x
             self.population_y = pop_y
-            logger(
-                f"{prefix}iter {record.step} | FE = {record.fe} | front = {record.front_size} | "
-                f"HV = {record.hv:.12f} | pop = {record.population_size}"
-            )
 
     try:
-        logger(f"test_log_path = {log_path.resolve()}")
-        logger(f"dim = {int(args.dim)}")
-        logger("framework_label = NSGA-II")
-        logger("infill_label = NSGA-II")
-        logger("comparison_family = solver_vs_baseline")
-        logger("solver_family = nsga2")
-        logger("run_variant = baseline")
-        logger("candidate_solver = nsga2")
-        logger("surrogate_model = -")
-        logger(f"problem = {args.problem} | dim = {int(args.dim)} | init_fe = {int(args.init_fe)} | max_fe = {int(args.max_fe)}")
-        logger(f"pop_size = {int(args.pop_size)}")
-        logger("n_offsprings = 1")
-        logger(f"reference_point = {ref_point.astype(float).tolist()} (from problem/problem.py)")
-        logger(f"{prefix}iter 0 | FE = {int(args.init_fe)} | front = {int(pareto_front(archive_y).shape[0])} | HV = {float(hypervolume(archive_y, ref_point)):.12f} | pop = {int(archive_y.shape[0])}")
+        logger(
+            f"test | baseline = nsga2 | problem = {args.problem} | "
+            f"dim = {int(args.dim)} | seed = {int(args.seed)}"
+        )
 
         callback = HVCallback()
         algorithm = NSGA2(
@@ -310,7 +295,11 @@ def run_once(args: argparse.Namespace) -> dict:
         }
         wall_clock_sec = time.perf_counter() - run_started_at
         summary["wall_clock_sec"] = float(wall_clock_sec)
-        logger(f"wall_clock_sec = {wall_clock_sec:.6f}")
+        logger(
+            f"result | FE = {summary['fe_history'][-1]} | "
+            f"front = {int(pareto_front(np.asarray(callback.population_y)).shape[0])} | "
+            f"HV = {summary['final_hv']:.12f} | wall_sec = {wall_clock_sec:.2f}"
+        )
 
         plot_results(
             args=args,
@@ -322,7 +311,6 @@ def run_once(args: argparse.Namespace) -> dict:
             output_path = Path(args.output_json)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-            logger(f"output_json = {output_path.resolve()}")
         return summary
     finally:
         log_fp.close()

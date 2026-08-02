@@ -351,20 +351,12 @@ def run_once(args: argparse.Namespace) -> dict:
     lower, upper = _make_bounds(problem)
     log_path = Path(args.log_path) if args.log_path else default_log_path(args)
     logger, log_fp = make_logger(log_path)
-    prefix = "[QNEHVI] "
 
     try:
-        logger(f"log_path = {log_path.resolve()}")
-        logger(f"dim = {int(args.dim)}")
-        logger("framework_label = qNEHVI")
-        logger("infill_label = qNEHVI")
-        logger("comparison_family = solver_vs_baseline")
-        logger("solver_family = qnehvi")
-        logger("run_variant = baseline")
-        logger("backend = botorch-qNEHVI")
-        logger(f"kernel = {str(args.kernel).lower()}")
-        logger(f"problem = {args.problem} | dim = {int(args.dim)} | init_fe = {int(args.init_fe)} | max_fe = {int(args.max_fe)}")
-        logger(f"q = {int(args.q)} | n_mc = {int(args.n_mc)} | num_restarts = {int(args.num_restarts)} | raw_samples = {int(args.raw_samples)}")
+        logger(
+            f"test | baseline = qnehvi | problem = {args.problem} | "
+            f"dim = {int(args.dim)} | seed = {int(args.seed)}"
+        )
 
         archive_x = latin_hypercube_sample(
             n_samples=int(args.init_fe),
@@ -380,8 +372,6 @@ def run_once(args: argparse.Namespace) -> dict:
         hv_history: list[float] = [float(hypervolume(archive_y, ref_point_min))]
         fe_history: list[int] = [int(args.init_fe)]
         records: list[QNEHVIStepRecord] = []
-        logger(f"reference_point = {ref_point_min.astype(float).tolist()} (minimization HV)")
-        logger(f"{prefix}iter 0 | front = {int(pareto_front(archive_y).shape[0])} | HV = {hv_history[-1]:.12f}")
 
         n_batches = (int(args.max_fe) - int(args.init_fe)) // int(args.q)
         fe = int(args.init_fe)
@@ -409,10 +399,6 @@ def run_once(args: argparse.Namespace) -> dict:
                 raw_samples=int(args.raw_samples),
                 acq_maxiter=int(args.acq_maxiter),
             )
-            logger(
-                f"batch {batch_step + 1:02d} | qnehvi_acq = {acq_scalar:.6f} | "
-                f"batch_candidates = {int(batch_x.shape[0])}"
-            )
 
             for member_idx in range(int(batch_x.shape[0])):
                 selected_x = batch_x[member_idx : member_idx + 1]
@@ -436,10 +422,6 @@ def run_once(args: argparse.Namespace) -> dict:
                     selected_std=batch_pred_std[member_idx].reshape(-1).astype(float).tolist(),
                 )
                 records.append(record)
-                logger(
-                    f"{prefix}batch {record.batch_step:02d} cand {record.batch_member} | "
-                    f"FE = {record.fe} | front = {record.front_size} | HV = {record.hv:.12f}"
-                )
 
                 if member_idx < int(batch_x.shape[0]) - 1:
                     train_x_norm = _normalize_x(archive_x, lower, upper)
@@ -477,13 +459,15 @@ def run_once(args: argparse.Namespace) -> dict:
         }
         wall_clock_sec = time.perf_counter() - run_started_at
         summary["wall_clock_sec"] = float(wall_clock_sec)
-        logger(f"wall_clock_sec = {wall_clock_sec:.6f}")
+        logger(
+            f"result | FE = {fe_history[-1]} | front = {int(pareto_front(archive_y).shape[0])} | "
+            f"HV = {hv_history[-1]:.12f} | wall_sec = {wall_clock_sec:.2f}"
+        )
         plot_results(args=args, archive_y=archive_y, fe_history=fe_history, hv_history=hv_history)
         if args.output_json:
             output_path = Path(args.output_json)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-            logger(f"output_json = {output_path.resolve()}")
         return summary
     finally:
         log_fp.close()
